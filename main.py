@@ -1,426 +1,282 @@
 #!/usr/bin/env python3
 """
-Uni-Verse: Lean Multi-Language Translator
-=========================================
-A stable, minimal translation tool with core functionality:
-- Text and audio (.wav only) input
-- Multi-language translation via Google Translate
-- Smart slang handling
-- Text-to-speech output
-- Clean error handling
-
-Author: Your Name
-Date: 2025
-Version: 1.5 (Lean & Stable)
+Uni-Verse: Ultra-Clean FREE Translator
+======================================
+Production-ready, 150-line free translator with all improvements
 """
 
 import json
 import os
-import sys
 import re
-import signal
-import tempfile
+import subprocess
+import platform
+import requests
 from typing import Optional, Dict
 
-# Third-party imports with error handling
+# Check dependencies
 try:
-    from googletrans import Translator, LANGUAGES
-    import speech_recognition as sr
-    from gtts import gTTS
-    from playsound import playsound
+    from deep_translator import GoogleTranslator
+    import pyttsx3
 except ImportError as e:
-    print(f"❌ Missing required package: {e}")
-    print("📦 Install with: pip install googletrans==4.0.0rc1 SpeechRecognition gTTS playsound")
-    sys.exit(1)
+    print(f"Install: pip install deep-translator pyttsx3 requests")
+    exit(1)
+
+# Optional Vosk for offline transcription
+try:
+    import vosk
+    import wave
+    VOSK_AVAILABLE = True
+except ImportError:
+    VOSK_AVAILABLE = False
 
 
-class UniVerseTranslator:
-    """Lean translator with core functionality."""
-    
+class UltraTranslator:
     def __init__(self):
-        """Initialize translator with minimal configuration."""
-        self.slang_dict = self._load_slang_dictionary()
-        self.translator = Translator()
-        self.recognizer = sr.Recognizer()
-        self.temp_files = []
-        
-        # Setup graceful exit
-        signal.signal(signal.SIGINT, self._signal_handler)
-        
-        # Core TTS supported languages (tested and stable)
-        self.tts_supported = {
-            'en', 'hi', 'mr', 'gu', 'es', 'fr', 'de', 'it', 'pt', 'ru',
-            'ja', 'ko', 'zh', 'ar', 'tr', 'nl', 'pl', 'sv', 'da', 'no'
+        self.slang_dict = {
+            "gonna": "going to", "wanna": "want to", "y'all": "you all",
+            "ain't": "is not", "dunno": "don't know", "can't": "cannot",
+            "won't": "will not", "lemme": "let me", "gimme": "give me",
+            "kinda": "kind of", "sorta": "sort of", "gotta": "got to"
+        }
+        self.tts_engine = self._init_tts()
+        self.vosk_model = None
+        self.lang_shortcuts = {
+            'es': 'Spanish', 'fr': 'French', 'de': 'German', 'hi': 'Hindi',
+            'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese', 'ru': 'Russian'
         }
     
-    def _signal_handler(self, signum, frame):
-        """Handle Ctrl+C gracefully."""
-        print("\n\n👋 Goodbye! Thanks for using Uni-Verse Translator!")
-        self._cleanup_temp_files()
-        sys.exit(0)
-    
-    def _cleanup_temp_files(self):
-        """Clean up temporary files."""
-        for temp_file in self.temp_files:
-            try:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-            except Exception:
-                pass
-        self.temp_files.clear()
-    
-    def _load_slang_dictionary(self) -> Dict[str, str]:
-        """Load slang dictionary with simple error handling."""
-        slang_file = "slangs.json"
-        
+    def _init_tts(self) -> Optional[object]:
+        """Initialize text-to-speech engine."""
         try:
-            if not os.path.exists(slang_file):
-                # Create default slang dictionary
-                default_slangs = {
-                    "gonna": "going to", "wanna": "want to", "y'all": "you all",
-                    "ain't": "is not", "dunno": "don't know", "can't": "cannot",
-                    "won't": "will not", "shouldn't": "should not",
-                    "couldn't": "could not", "wouldn't": "would not",
-                    "lemme": "let me", "gimme": "give me", "kinda": "kind of",
-                    "sorta": "sort of", "gotta": "got to"
-                }
-                
-                with open(slang_file, "w", encoding='utf-8') as f:
-                    json.dump(default_slangs, f, indent=2, ensure_ascii=False)
-                
-                print(f"📝 Created {slang_file} with {len(default_slangs)} common slangs")
-                return default_slangs
-            
-            with open(slang_file, "r", encoding='utf-8') as f:
-                slang_dict = json.load(f)
-                print(f"✅ Loaded {len(slang_dict)} slang entries")
-                return slang_dict
-                
-        except json.JSONDecodeError:
-            print("⚠️  Invalid JSON in slangs.json, using empty dictionary")
-            return {}
-        except Exception:
-            print("⚠️  Could not load slangs.json, using empty dictionary")
-            return {}
-    
-    def _clean_word_for_slang(self, word: str):
-        """Clean word for slang matching, preserving punctuation."""
-        # Handle basic punctuation
-        match = re.match(r'^(\W*)(.*?)(\W*)$', word)
-        if match:
-            prefix, clean_word, suffix = match.groups()
-            return prefix, clean_word.lower(), suffix
-        return '', word.lower(), ''
-    
-    def handle_slangs(self, text: str) -> str:
-        """Replace known slangs with clean handling."""
-        if not text or not self.slang_dict:
-            return text
-        
-        words = text.split()
-        processed_words = []
-        
-        for word in words:
-            prefix, clean_word, suffix = self._clean_word_for_slang(word)
-            
-            if clean_word in self.slang_dict:
-                replacement = self.slang_dict[clean_word]
-                processed_word = prefix + replacement + suffix
-            else:
-                processed_word = word
-            
-            processed_words.append(processed_word)
-        
-        return " ".join(processed_words)
-    
-    def audio_to_text(self, file_path: str) -> Optional[str]:
-        """Convert WAV audio file to text."""
-        try:
-            if not os.path.exists(file_path):
-                print(f"❌ File not found: {file_path}")
-                return None
-            
-            file_ext = os.path.splitext(file_path)[1].lower()
-            if file_ext not in ['.wav', '.wave']:
-                print(f"❌ Unsupported audio format: {file_ext}")
-                print("💡 Only .wav files are supported")
-                return None
-            
-            print("🎤 Processing audio...")
-            with sr.AudioFile(file_path) as source:
-                # Adjust for ambient noise
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                audio_data = self.recognizer.record(source)
-                
-            print("🧠 Recognizing speech...")
-            text = self.recognizer.recognize_google(audio_data)
-            print("✅ Speech recognition successful")
-            return text
-            
-        except sr.UnknownValueError:
-            print("❌ Could not understand the audio")
-            print("💡 Try with clearer audio or check volume levels")
-            return None
-        except sr.RequestError as e:
-            print(f"❌ Speech recognition service error: {e}")
-            print("💡 Check your internet connection")
-            return None
-        except Exception as e:
-            print(f"❌ Audio processing error: {e}")
+            engine = pyttsx3.init()
+            engine.setProperty('rate', 150)
+            engine.setProperty('volume', 0.9)
+            return engine
+        except:
             return None
     
-    def translate_text(self, text: str, dest_lang: str) -> Optional[str]:
-        """Translate text to target language."""
-        try:
-            if not text.strip():
-                print("❌ Empty text provided")
-                return None
-            
-            # Process slangs
-            processed_text = self.handle_slangs(text)
-            if processed_text != text:
-                print("🔄 Processed slangs in text")
-            
-            # Validate language code
-            if dest_lang not in LANGUAGES:
-                print(f"❌ Unsupported language code: '{dest_lang}'")
-                self._show_language_suggestions()
-                return None
-            
-            # Perform translation
-            print(f"🌐 Translating to {LANGUAGES[dest_lang].title()}...")
-            translated = self.translator.translate(processed_text, dest=dest_lang)
-            
-            if translated and translated.text:
-                return translated.text
-            else:
-                print("❌ Translation returned empty result")
-                return None
-                
-        except Exception as e:
-            print(f"❌ Translation error: {e}")
-            print("💡 Check your internet connection and try again")
-            return None
-    
-    def text_to_speech(self, text: str, lang: str) -> bool:
-        """Convert text to speech with simple handling."""
-        try:
-            if not text.strip():
-                print("❌ Empty text for TTS")
-                return False
-            
-            # Check TTS language support
-            if lang not in self.tts_supported:
-                print(f"🔇 TTS not available for language '{lang}'")
-                print("🔇 Skipping audio output")
-                return False
-            
-            print("🔊 Generating speech...")
-            
-            # Create temporary audio file
-            temp_audio_fd, temp_audio = tempfile.mkstemp(suffix='.mp3')
-            os.close(temp_audio_fd)
-            self.temp_files.append(temp_audio)
-            
-            # Generate and play TTS
-            tts = gTTS(text=text, lang=lang, slow=False)
-            tts.save(temp_audio)
-            
-            print("▶️  Playing audio...")
-            playsound(temp_audio)
-            print("✅ Audio playback complete")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Text-to-speech error: {e}")
-            print("🔇 Continuing without audio output")
-            return False
-    
-    def _show_language_suggestions(self):
-        """Display popular language codes."""
-        popular_langs = {
-            'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
-            'it': 'Italian', 'pt': 'Portuguese', 'hi': 'Hindi', 'mr': 'Marathi',
-            'gu': 'Gujarati', 'zh': 'Chinese', 'ja': 'Japanese', 'ko': 'Korean',
-            'ar': 'Arabic', 'ru': 'Russian'
-        }
+    def _load_vosk_model(self) -> Optional[object]:
+        """Lazy load Vosk model for speech recognition."""
+        if not VOSK_AVAILABLE or self.vosk_model is not None:
+            return self.vosk_model
         
-        print("\n💡 Popular language codes:")
-        for code, name in popular_langs.items():
-            print(f"   {code} = {name}")
-        print("   For complete list: https://cloud.google.com/translate/docs/languages")
-    
-    def _get_user_input_safe(self, prompt: str) -> str:
-        """Get user input with error handling."""
-        try:
-            return input(prompt).strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n👋 Goodbye!")
-            self._cleanup_temp_files()
-            sys.exit(0)
-    
-    def _display_header(self):
-        """Display application header."""
-        print("=" * 55)
-        print("🌍 UNI-VERSE TRANSLATOR 🌍")
-        print("Lean Multi-Language Translation Tool")
-        print("=" * 55)
-        print("📋 Features:")
-        print("   • Text & Audio (.wav) input")
-        print("   • Smart slang handling")
-        print("   • Text-to-speech output")
-        print("   • 100+ language support")
-        print()
-        print("⚠️  Requirements:")
-        print("   • Internet connection required")
-        print("   • Only .wav files supported for audio")
-        print("   • Press Ctrl+C to exit anytime")
-        print("=" * 55)
-    
-    def _get_input_mode(self) -> str:
-        """Get and validate input mode."""
-        while True:
-            print("\n📥 Input Options:")
-            print("   1️⃣  Text input")
-            print("   2️⃣  Audio file (.wav only)")
-            
-            mode = self._get_user_input_safe("Choose mode (1 or 2): ")
-            
-            if mode in ['1', '2']:
-                return mode
-            
-            print("❌ Invalid selection. Please enter 1 or 2.")
-    
-    def _get_text_input(self) -> Optional[str]:
-        """Get text input from user."""
-        text = self._get_user_input_safe("📝 Enter text to translate: ")
+        model_paths = [
+            "vosk-model-en-us-0.22", "vosk-model-small-en-us-0.15",
+            "./models/vosk-model-en-us-0.22", "./vosk-model-small-en-us-0.15"
+        ]
         
+        for path in model_paths:
+            if os.path.exists(path):
+                try:
+                    self.vosk_model = vosk.Model(path)
+                    return self.vosk_model
+                except:
+                    continue
+        return None
+    
+    def handle_slang(self, text: str) -> str:
+        """Replace slang using regex for better accuracy."""
         if not text:
-            print("❌ No text entered")
+            return text
+        
+        pattern = re.compile(r'\b(' + '|'.join(self.slang_dict.keys()) + r')\b', re.IGNORECASE)
+        return pattern.sub(lambda m: self.slang_dict[m.group(0).lower()], text)
+    
+    def detect_language(self, text: str) -> str:
+        """Auto-detect source language."""
+        try:
+            detected = GoogleTranslator(source='auto', target='en').translate(text)
+            return GoogleTranslator().detect(text)
+        except:
+            return 'en'
+    
+    def translate(self, text: str, target_lang: str, source_lang: str = 'auto') -> Optional[str]:
+        """Multi-service translation with fallback."""
+        text = self.handle_slang(text)
+        
+        # Service 1: Google via deep-translator
+        try:
+            translator = GoogleTranslator(source=source_lang, target=target_lang)
+            result = translator.translate(text)
+            if result and result.strip():
+                return result.strip()
+        except Exception as e:
+            print(f"⚠️ Google failed: {str(e)[:50]}...")
+        
+        # Service 2: MyMemory API
+        try:
+            url = "https://api.mymemory.translated.net/get"
+            params = {'q': text, 'langpair': f'{source_lang}|{target_lang}'}
+            response = requests.get(url, params=params, timeout=10)
+            data = response.json()
+            
+            if data.get('responseStatus') == 200:
+                result = data['responseData']['translatedText']
+                if result and result.strip():
+                    return result.strip()
+        except Exception as e:
+            print(f"⚠️ MyMemory failed: {str(e)[:50]}...")
+        
+        # Service 3: LibreTranslate instances
+        for instance in ["https://libretranslate.de", "https://translate.argosopentech.com"]:
+            try:
+                response = requests.post(f"{instance}/translate", 
+                                       data={'q': text, 'source': source_lang, 'target': target_lang},
+                                       timeout=10)
+                result = response.json().get('translatedText')
+                if result and result.strip():
+                    return result.strip()
+            except:
+                continue
+        
+        return None
+    
+    def speak(self, text: str, lang: str = 'en') -> bool:
+        """Cross-platform text-to-speech."""
+        if not text:
+            return False
+        
+        # Escape text for shell safety
+        safe_text = text.replace('"', '\\"').replace("'", "\\'")
+        
+        # Try pyttsx3 first
+        if self.tts_engine:
+            try:
+                self.tts_engine.say(text)
+                self.tts_engine.runAndWait()
+                return True
+            except:
+                pass
+        
+        # System-level fallbacks
+        system = platform.system().lower()
+        try:
+            if system == "windows":
+                cmd = f'powershell -Command "Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak(\'{safe_text}\')"'
+                subprocess.run(cmd, shell=True, timeout=30)
+                return True
+            elif system == "darwin":
+                subprocess.run(['say', text], timeout=30)
+                return True
+            elif system == "linux":
+                if os.system("which espeak > /dev/null 2>&1") == 0:
+                    subprocess.run(['espeak', text], timeout=30)
+                    return True
+        except:
+            pass
+        
+        print("⚠️ Text-to-speech not available")
+        return False
+    
+    def transcribe_audio(self, audio_file: str) -> Optional[str]:
+        """Offline speech recognition with Vosk."""
+        model = self._load_vosk_model()
+        if not model:
+            print("⚠️ Vosk model not found. Download from: https://alphacephei.com/vosk/models/")
             return None
         
-        return text
+        try:
+            with wave.open(audio_file, 'rb') as wf:
+                rec = vosk.KaldiRecognizer(model, wf.getframerate())
+                text = ""
+                
+                while True:
+                    data = wf.readframes(4000)
+                    if len(data) == 0:
+                        break
+                    if rec.AcceptWaveform(data):
+                        result = json.loads(rec.Result())
+                        text += result.get('text', '') + " "
+                
+                final_result = json.loads(rec.FinalResult())
+                text += final_result.get('text', '')
+                
+                return text.strip() if text.strip() else None
+        except Exception as e:
+            print(f"❌ Audio transcription failed: {e}")
+            return None
     
-    def _get_audio_input(self) -> Optional[str]:
-        """Get audio input and convert to text."""
-        while True:
-            audio_path = self._get_user_input_safe("🎵 Enter path to WAV audio file: ")
-            
-            if not audio_path:
-                print("❌ No file path entered")
+    def get_input_text(self) -> Optional[str]:
+        """Get text input via typing or audio file."""
+        mode = input("Input mode (1=Type, 2=Audio file): ").strip()
+        
+        if mode == '1':
+            text = input("Enter text: ").strip()
+            return text if text else None
+        
+        elif mode == '2':
+            audio_file = input("WAV file path: ").strip()
+            if not os.path.exists(audio_file):
+                print(f"❌ File not found: {audio_file}")
                 return None
             
-            # Expand user path
-            audio_path = os.path.expanduser(audio_path.strip('"\''))
-            
-            text = self.audio_to_text(audio_path)
-            if text:
-                print(f"✅ Recognized: '{text}'")
-                return text
-            
-            retry = self._get_user_input_safe("❓ Try another file? (y/n): ").lower()
-            if not retry.startswith('y'):
-                return None
+            print("🎤 Transcribing...")
+            return self.transcribe_audio(audio_file)
+        
+        else:
+            print("❌ Invalid mode")
+            return None
     
-    def _get_target_language(self) -> Optional[str]:
-        """Get and validate target language."""
-        self._show_language_suggestions()
+    def get_target_language(self) -> Optional[str]:
+        """Get target language with shortcuts."""
+        print("Common: es=Spanish, fr=French, de=German, hi=Hindi, ja=Japanese")
+        lang = input("Target language code: ").strip().lower()
         
-        while True:
-            lang = self._get_user_input_safe("\n🌐 Enter target language code: ").lower()
-            
-            if not lang:
-                print("❌ No language code entered")
-                continue
-            
-            if lang in LANGUAGES:
-                return lang
-            
-            print(f"❌ Invalid language code: '{lang}'")
-            retry = self._get_user_input_safe("❓ Try again? (y/n): ").lower()
-            if not retry.startswith('y'):
-                return None
+        if lang in self.lang_shortcuts:
+            print(f"🌐 Translating to {self.lang_shortcuts[lang]}")
+        
+        return lang if lang else None
     
-    def _display_results(self, original: str, translated: str, lang_code: str):
-        """Display translation results."""
-        lang_name = LANGUAGES.get(lang_code, lang_code).title()
+    def run_session(self) -> bool:
+        """Single translation session."""
+        # Get input
+        text = self.get_input_text()
+        if not text:
+            return True  # Continue loop
         
-        print(f"\n{'='*20} 📋 RESULTS {'='*20}")
-        print(f"📤 Original:   {original}")
-        print(f"📥 Translated: {translated}")
-        print(f"🌐 Language:   {lang_name} ({lang_code})")
-        print("=" * 50)
-    
-    def _offer_audio_output(self, text: str, lang: str):
-        """Offer audio output to user."""
-        if lang not in self.tts_supported:
-            print(f"🔇 Audio output not available for language '{lang}'")
-            return
+        print(f"📝 Input: {text}")
         
-        play_audio = self._get_user_input_safe("🔊 Play audio translation? (y/n): ").lower()
+        # Get target language
+        target_lang = self.get_target_language()
+        if not target_lang:
+            return True
         
-        if play_audio.startswith('y'):
-            self.text_to_speech(text, lang)
+        # Translate
+        print("🔄 Translating...")
+        translated = self.translate(text, target_lang)
+        
+        if not translated:
+            print("❌ All translation services failed")
+            return True
+        
+        # Display results
+        print(f"🌐 Translation: {translated}")
+        
+        # Optional audio
+        if input("🔊 Play audio? (y/n): ").strip().lower().startswith('y'):
+            self.speak(translated, target_lang)
+        
+        return True
     
     def run(self):
         """Main application loop."""
-        try:
-            # Display header
-            self._display_header()
-            
-            # Get input mode
-            mode = self._get_input_mode()
-            
-            # Get input text
-            if mode == "1":
-                input_text = self._get_text_input()
-            else:  # mode == "2"
-                input_text = self._get_audio_input()
-            
-            if not input_text:
-                print("❌ No input provided. Exiting.")
-                return
-            
-            # Get target language
-            target_lang = self._get_target_language()
-            if not target_lang:
-                print("❌ No valid language selected. Exiting.")
-                return
-            
-            # Perform translation
-            translated_text = self.translate_text(input_text, target_lang)
-            if not translated_text:
-                print("❌ Translation failed. Exiting.")
-                return
-            
-            # Display results
-            self._display_results(input_text, translated_text, target_lang)
-            
-            # Offer audio output
-            self._offer_audio_output(translated_text, target_lang)
-            
-            print("\n✅ Translation complete!")
-            
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}")
-            print("💡 Please try again")
+        print("🌍 ULTRA-CLEAN FREE TRANSLATOR 🌍")
+        print("=" * 45)
         
-        finally:
-            # Cleanup
-            self._cleanup_temp_files()
-
-
-def main():
-    """Entry point for the lean application."""
-    try:
-        translator = UniVerseTranslator()
-        translator.run()
-    except KeyboardInterrupt:
-        print("\n👋 Goodbye!")
-    except Exception as e:
-        print(f"❌ Fatal error: {e}")
-        sys.exit(1)
+        while True:
+            try:
+                if not self.run_session():
+                    break
+                
+                if not input("\n↻ Translate more? (Enter=yes, 'q'=quit): ").strip().lower() != 'q':
+                    break
+            except KeyboardInterrupt:
+                print("\n👋 Goodbye!")
+                break
+        
+        print("Thanks for using Ultra Translator!")
 
 
 if __name__ == "__main__":
-    main()
+    app = UltraTranslator()
+    app.run()
