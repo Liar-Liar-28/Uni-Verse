@@ -1,12 +1,15 @@
+---
+
 # **Uni-Verse**
 
 ## Features
 
-* **Text Translation:** Translate text between multiple languages using the Google Translate API.
-* **Audio Input:** Supports speech-to-text conversion for audio-based translation.
+* **Text Translation:** Translate text between multiple languages using free services (Google via deep-translator, MyMemory, LibreTranslate).
+* **Audio Input:** Supports speech-to-text conversion for audio files (offline transcription via Vosk if installed).
 * **Slang & Proverb Handling:** Basic dictionary-based support for common slangs and proverbs.
 * **Modular Design:** Clean, scalable architecture for easy upgrades.
 * **Cross-Language Support:** English, Hindi, Marathi, Gujarati (expandable).
+* **Optional Audio Output:** Plays translated text using TTS if dependencies are installed.
 
 ---
 
@@ -18,7 +21,7 @@ Uni-Verse/
 ├── requirements.txt # Python dependencies
 ├── README.md        # Project documentation
 ├── slangs.json      # Slang/proverb dictionary for context-aware translation
-└── sample_audio/    # Sample audio files for testing (contains .gitkeep placeholder)
+└── sample_audio/    # Sample audio files for testing (contains .gitkeep placeholder for empty folder)
 ```
 
 ---
@@ -35,10 +38,11 @@ cd Uni-Verse
 ## Installation
 
 ```bash
-git clone https://github.com/Liar-Liar-28/Uni-Verse.git  
-cd Uni-Verse  
 pip install -r requirements.txt
 ```
+
+> ⚠️ Ensure `vosk` models are downloaded if you want offline audio transcription.
+> PyAudio is required only if recording audio directly (not just using WAV files).
 
 ---
 
@@ -51,16 +55,21 @@ python main.py
 ```
 
 * Enter your text when prompted.
-* Select the target language.
+* Select the target language code.
 
 ### Audio Input Translation (Optional)
 
-* Place an audio file in `sample_audio/`.
-* Run the script and follow instructions for audio-to-text translation.
+* Place a `.wav` audio file in `sample_audio/`.
+* Run the script and choose audio input mode for transcription and translation.
+
+### Audio Output (Optional)
+
+* After translation, you can choose to play the translated text via TTS.
+* Works if `pyttsx3` is installed or system-level TTS is available.
 
 ---
 
-## Sample Slangs Dictionary (slangs.json)
+## Sample Slangs Dictionary (`slangs.json`)
 
 ```json
 {
@@ -78,38 +87,37 @@ python main.py
 
 * Translates plain text between multiple languages.
 * Handles a small set of predefined slangs and proverbs.
-* Supports audio input for speech-to-text conversion.
-* Outputs translated text.
+* Supports audio input for speech-to-text conversion via Vosk.
+* Optional audio playback of translated text via TTS.
 
 ---
 
 ## Future Roadmap
 
-**Phase 1 – Expand Slang & Proverb Handling (2–4 weeks)**
+### Phase 1 – Expand Slang & Proverb Handling (2–4 weeks)
 
 * Integrate AI-based slang detection.
 * Fetch unknown slangs/proverbs dynamically via API or lightweight web scraping.
 * Maintain a growing JSON dictionary automatically.
 
-**Phase 2 – Audio Output & Conversational Translation (3–5 weeks)**
+### Phase 2 – Audio Output & Conversational Translation (3–5 weeks)
 
-* Add text-to-speech (TTS) for audio translations.
-* Ensure voice output preserves tone and pronunciation per language.
-* Implement conversational translation mode for multi-turn dialogues.
+* Enhance TTS for natural voice output.
+* Implement multi-turn conversational translation mode.
 
-**Phase 3 – Tone Detection & Context Awareness (4–6 weeks)**
+### Phase 3 – Tone Detection & Context Awareness (4–6 weeks)
 
 * Detect input tone (formal, casual, sarcastic, friendly) using NLP sentiment analysis.
 * Adjust translations to preserve context and tone.
-* Implement context memory for multi-turn conversations.
+* Implement context memory for multi-turn dialogues.
 
-**Phase 4 – Expanded Language Support (Ongoing)**
+### Phase 4 – Expanded Language Support (Ongoing)
 
 * Gradually add regional and international languages.
 * Ensure slang/proverb detection scales across languages.
 * Maintain modular design for future upgrades.
 
-**Phase 5 – Deployment & Optimization (Ongoing)**
+### Phase 5 – Deployment & Optimization (Ongoing)
 
 * Optimize for real-time performance.
 * Deploy as a web or mobile app with cloud-based AI support.
