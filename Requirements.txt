@@ -1,7 +1,6 @@
 deep-translator
 pyttsx3
 requests
-vosk
 
 Installation
 pip install -r requirements.txt
