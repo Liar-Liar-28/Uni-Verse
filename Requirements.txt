@@ -1,12 +1,7 @@
-googletrans==4.0.0rc1
-SpeechRecognition
-gTTS
-playsound
-PyAudio
-⚡ Notes:
+deep-translator
+pyttsx3
+requests
+vosk
 
-PyAudio is required only if you plan to record audio directly (not just use .wav files).
-
-You can save this as requirements.txt and install all dependencies with:
-
+Installation
 pip install -r requirements.txt
